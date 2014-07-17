@@ -3,9 +3,9 @@ package students.filters;
 import java.util.Arrays;
 import java.util.Random;
 
-import weka.core.matrix.EigenvalueDecomposition;
-import weka.core.matrix.Matrix;
-import weka.core.matrix.SingularValueDecomposition;
+import org.ejml.data.MatrixIterator;
+import org.ejml.simple.SimpleMatrix;
+import org.ejml.simple.SimpleSVD;
 
 
 
@@ -18,19 +18,19 @@ import weka.core.matrix.SingularValueDecomposition;
 public class FastICA {
 	
 	// 
-	private Matrix S;
+	private SimpleMatrix S;
 	
 	// The data matrix
-	private Matrix X;
+	private SimpleMatrix X;
 	
 	// The unmixing matrix
-	private Matrix W;
+	private SimpleMatrix W;
 	
 	// Reference to non-linear neg-entropy estimator function
 	private ICAGFunction G;
 	
 	// Convergence tolerance
-	private final float tolerance;
+	private final double tolerance;
 	
 	// Iteration limit
 	private final int max_iter;
@@ -43,7 +43,7 @@ public class FastICA {
 	 * function to estimate negative entropy. This implementation does not
 	 * perform automatic component selection or reduction.
 	 * 
-	 * @param data - {@link Matrix} containing the source data; each column
+	 * @param data - {@link SimpleMatrix} containing the source data; each column
 	 * contains a single signal, and each row contains one sample of all signals 
 	 * (rows contain instances, columns are features)
 	 * @param g_func - {@link ICAGFunction} to estimate negative entropy 
@@ -51,14 +51,12 @@ public class FastICA {
 	 * @param max_iter - max number of iterations
 	 * @param whiten - whiten the data matrix (default true)
 	 */
-	public FastICA(Matrix data, ICAGFunction g_func, float tolerance, int max_iter, boolean whiten) {
+	public FastICA(SimpleMatrix data, ICAGFunction g_func, double tolerance, int max_iter, boolean whiten) {
 		this.G = g_func;
 		this.tolerance = tolerance;
 		this.max_iter = max_iter;
 		
-		// transpose the data matrix so that each row is a signal and the
-		// columns contain instances (Fortran-ordered), then apply mean centering
-		this.X = center(data.transpose());
+		this.X = center(data);
 		
 		if (whiten) {
 			this.X = whiten(X);
@@ -74,53 +72,128 @@ public class FastICA {
 	 * negative entropy and whitening/mean-centering of the data matrix. This 
 	 * implementation does not perform automatic component selection or reduction.
 	 * 
-	 * @param data - {@link Matrix} containing the source data; each column
+	 * @param data - {@link SimpleMatrix} containing the source data; each column
 	 * contains a single signal, and each row contains one sample of all signals 
 	 * (rows contain instances, columns are features)
 	 * @param tolerance - maximum allowable convergence error
 	 * @param max_iter - max number of iterations
 	 */
-	public FastICA(Matrix data, float tolerance, int max_iter) {
+	public FastICA(SimpleMatrix data, double tolerance, int max_iter) {
 		this(data, new LogCosh(), tolerance, max_iter, true);
 	}
 	
-	
-	public void train() {
-		
-
-		
-	}
+//	public Matrix transform() {
+//		
+//	}
 	
 	/*
 	 * FastICA main loop - default uses symmetric decorrelation. (i.e., 
 	 * estimate all the independent components in parallel)
 	 */
-	private Matrix parallel_ica() {
+	public Matrix parallel_ica() {
 		
-		int rows = X.getRowDimension();
-		int cols = X.getColumnDimension();
-		Matrix W1 = new Matrix(rows, cols);
+		int m = X.getRowDimension();
+		int n = X.getColumnDimension();
+		Matrix W1 = new Matrix(m, n);
 		double[][] W1_ = W1.getArray();
 		
 		W = symmetricOrthogonalization(W);
 		for (int iter = 0; iter < max_iter; iter++) {
 			G.apply(W.times(X));
-			/*
-			 * 1. A = gx.times(X.transpose())
-			 * 2. A /= number of columns
-			 * 3. A -= each g_x * the whole row of W
-			 * 4. W1 = symmetricOrthogonalization(A)
-			 * 5. lim = max(abs(abs(np.diag(dot(W1, W.T))) - 1)
-			 */
-			W1 = symmetricOrthogonalization();
+			Matrix gx = G.getGx();
+			Matrix A = gx.times(X.transpose());
+			A.timesEquals(1. / new Double(n));
+			A.minusEquals(rowMultiply(W, G.getGpx()));
+			W1 = symmetricOrthogonalization(A);
 			
-			
+			double lim = max(abs(add(abs(diag(W1.times(W.transpose()))),-1)));
+			W = W1;
+			if (lim < tolerance) 
+				break;
 		}
 		return W;
 	}
 	
+//	private Matrix rowMultiply(Matrix A, Matrix B) {
+//		double[][] _A = A.getArrayCopy();
+//		double[][] _B = B.getArray();
+//		
+//		for (int i = 0; i < A.getRowDimension(); i++) {
+//			for (int j = 0; j < A.getColumnDimension(); j++) {
+//				_A[i][j] *= _B[i][0];
+//			}
+//		}
+//		return new Matrix(_A);
+//	}
+//	
+//	private Matrix colMultiply(Matrix A, Matrix B) {
+//		double[][] _A = A.getArrayCopy();
+//		double[][] _B = B.getArray();
+//
+//		for (int i = 0; i < A.getRowDimension(); i++) {
+//			for (int j = 0; j < A.getColumnDimension(); j++) {
+//				_A[i][j] *= _B[0][j];
+//			}
+//		}
+//		return new Matrix(_A);
+//	}
+//	
+//	private Matrix recip(Matrix A) {
+//		double[][] _A = A.getArrayCopy();
+//		
+//		for (int i = 0; i < A.getRowDimension(); i++) {
+//			for (int j = 0; j < A.getColumnDimension(); j++) {
+//				_A[i][j] = 1. / _A[i][j];
+//			}
+//		}
+//		return new Matrix(_A);
+//	}
+//	
+//	private Matrix diag(Matrix A) {
+//		int l = Math.min(A.getColumnDimension(), A.getRowDimension());
+//		Matrix x = new Matrix(1, l, 0);
+//		double[][] x_ = x.getArray();
+//		for (int i = 0; i < l; i++) {
+//			x_[0][i] = A.get(i, i);
+//		}
+//		return x;
+//	}
+//	
+//	private double max(Matrix A) {
+//		double[][] _A = A.getArray();
+//		double x = 0;
+//		for (int i = 0; i < A.getRowDimension(); i++) {
+//			for (int j = 0; j < A.getColumnDimension(); j++) {
+//				if (_A[i][j] > x) {
+//					x = _A[i][j];
+//				}
+//			}
+//		}
+//		return x;
+//	}
+//	
+//	private Matrix abs(Matrix A) {
+//		double[][] _A = A.getArrayCopy();
+//		for (int i = 0; i < A.getRowDimension(); i++) {
+//			for (int j = 0; j < A.getColumnDimension(); j++) {
+//				_A[i][j] = Math.abs(_A[i][j]);
+//			}
+//		}
+//		return new Matrix(_A);
+//	}
+//	
+//	private Matrix add(Matrix A, double x) {
+//		double[][] _A = A.getArrayCopy();
+//		for (int i = 0; i < A.getRowDimension(); i++) {
+//			for (int j = 0; j < A.getColumnDimension(); j++) {
+//				_A[i][j] -= x;
+//			}
+//		}
+//		return new Matrix(_A);
+//	}
+	
 	/*
-	 * Initialize the unmixing matrix from a standard Gaussian random generator
+	 * Generate a matrix filled with standard Gaussian random variables
 	 * with zero mean and unit variance. This implementation is ported from
 	 * the sklearn python package.
 	 */
@@ -137,55 +210,57 @@ public class FastICA {
 	}
 	
 	/*
-	 * Center a matrix by subtracting the average of each row from every 
-	 * element in the row
+	 * Center a matrix by subtracting the average of each column vector
+	 * from every element in the column
 	 */
-	private Matrix center(Matrix data) {
-		double[][] x = data.getArrayCopy();
-		int p = data.getColumnDimension();  // number of instances
-		int n = data.getRowDimension();  // number of signals
-		
-		// calculate the mean of each row
-		Matrix means = new Matrix(n, 1, 0);
-		double[][] y = means.getArray();
-		for (int i = 0; i < p; i++) {
-			for (int j = 0; j < n; j++) {
-				y[0][j] += x[i][j];
-			}
-		}
-		means.timesEquals(1. / new Double(n));
-
-		// subtract the means from each row
+	public static SimpleMatrix center(SimpleMatrix x) {
+		SimpleMatrix col;
+		double mean;
+		int m = x.numRows();
+		int n = x.numCols();
 		for (int i = 0; i < n; i++) {
-			for (int j = 0; j < n; j++) {
-				x[i][j] -= y[0][j];
+			col = x.extractVector(false, i);
+			mean = col.elementSum() / new Double(m);
+			for (int j = 0; j < m; j++) {
+				col.set(j, col.get(j) - mean);
 			}
+			x.insertIntoThis(0, i, col);
 		}
-		
-		return new Matrix(x);
-	}
-	
-	/*
-	 * Return a whitened copy of a matrix by decorrelating and scaling the row 
-	 * vectors. This implementation is ported from the sklearn python module 
-	 * for fastica.
-	 */
-	private Matrix whiten(Matrix data) {
-		Matrix x = data.copy();
-		SingularValueDecomposition svd = x.svd();
-		Matrix K = (svd.getU().arrayRightDivide(svd.getS())).transpose(); 
-		x = K.times(x);
-		x.timesEquals(1. / Math.sqrt(num_components));
 		return x;
 	}
 	
 	/*
-	 * Return a copy of the input matrix of row vectors that has been updated 
-	 * according to the rule for FastICA: B <- B.B' ^{-1/2} * B
+	 * Whiten a matrix, x,  of column vectors by decorrelating and 
+	 * scaling the elements according to: x_ = ED^{-1/2}E'x , where E is the
+	 * orthogonal matrix of eigenvectors of E{xx'}. In this implementation,
+	 * the eigen decomposition is replaced with the SVD based on the FastICA
+	 * implementation in the sklearn Python package.
 	 * 
-	 * there are only real eigenvalues because x.x' is Hermitian
+	 * Testing this method is difficult because the decomposition is ambiguous
+	 * with regard to the direction of column vectors - they can be +/-.
 	 */
-	private Matrix symmetricOrthogonalization(Matrix x) {
+	public static SimpleMatrix whiten(SimpleMatrix x) {
+		// get compact SVD (D matrix is min(m,n) square)
+		SimpleSVD svd = x.svd(true);   
+		
+		// TODO: K should only keep `num_components` columns if performing
+		// dimensionality reduction
+		SimpleMatrix K = svd.getV().mult(svd.getW().invert());
+	
+		SimpleMatrix x_ = x.mult(K);
+		x_ = x_.scale(Math.sqrt(x.numRows()));
+		return x_;
+	}
+	
+	/*
+	 * Return a copy of the input matrix of row vectors that has been updated 
+	 * according to the rule for FastICA: B <- B.B' ^{-1/2} * B, from the
+	 * sklearn python module for fastica.
+	 * 
+	 * NOTE: There are only real eigenvalues because x.x' is Hermitian
+	 */
+	public static SimpleMatrix symmetricDecorrelation(SimpleMatrix x) {
+		
 		
 		EigenvalueDecomposition ev = x.times(x.transpose()).eig();
 		double[] e = ev.getRealEigenvalues();
