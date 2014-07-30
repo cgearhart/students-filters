@@ -1,10 +1,11 @@
 package students.filters;
 
+import weka.core.Attribute;
 import weka.core.Instances;
 import weka.core.RevisionUtils;
 import weka.filters.SimpleBatchFilter;
 
-public class IndependentComponets extends SimpleBatchFilter {
+public class IndependentComponetFilter extends SimpleBatchFilter {
 	
 	static final long serialVersionUID = 0;
 
@@ -23,12 +24,16 @@ public class IndependentComponets extends SimpleBatchFilter {
 
 	@Override
 	protected Instances process(Instances instances) throws Exception {
-		// needs args for max_iter, tolerance
 		
-		// Process instances to matrix ignoring class labels
+		// Test that there is no missing data and only contains numeric attributes
+				
+		// TODO: needs args for max_iter, tolerance
 		
+		// Convert instances to matrix ignoring class labels
+		
+		// Process the data through FastICA
 
-		// Process matrix back to Instances
+		// Convert results back to Instances
 		
 		return null;
 	}

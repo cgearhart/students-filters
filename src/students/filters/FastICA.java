@@ -1,33 +1,44 @@
 package students.filters;
 
-import java.util.Arrays;
 import java.util.Random;
 
-import org.ejml.data.MatrixIterator;
+import org.ejml.simple.SimpleEVD;
 import org.ejml.simple.SimpleMatrix;
 import org.ejml.simple.SimpleSVD;
 
 
 
 /**
- * FastICA port from scikit-learn implementation.
+ * FastICA port of Python scikit-learn implementation.
  * 
  * @author Chris Gearhart <cgearhart3@gatech.edu>
  *
  */
 public class FastICA {
 	
-	// 
-	private SimpleMatrix S;
+	// The estimated unmixing matrix
+	private SimpleMatrix W;
+	
+	// The pre-whitening matrix
+	private SimpleMatrix K;
 	
 	// The data matrix
 	private SimpleMatrix X;
 	
-	// The unmixing matrix
-	private SimpleMatrix W;
+	// The estimated source matrix
+	private SimpleMatrix X_;
 	
 	// Reference to non-linear neg-entropy estimator function
-	private ICAGFunction G;
+	private NegativeEntropyEstimator G;
+	
+	// Number of components to output
+	private int num_components;
+	
+	// number of rows (instances) in X
+	private int m;
+	
+	// number of columns (features) in X
+	private int n;
 	
 	// Convergence tolerance
 	private final double tolerance;
@@ -35,36 +46,27 @@ public class FastICA {
 	// Iteration limit
 	private final int max_iter;
 	
-	// number of components to output
-	private final int num_components;
+	// Whiten the data if true
+	private final boolean whiten;
 	
 	/**
 	 * General FastICA instance constructor with an arbitrary (user-supplied)
 	 * function to estimate negative entropy. This implementation does not
 	 * perform automatic component selection or reduction.
 	 * 
-	 * @param data - {@link SimpleMatrix} containing the source data; each column
+	 * @param data - 2d array of doubles containing the source data; each column
 	 * contains a single signal, and each row contains one sample of all signals 
 	 * (rows contain instances, columns are features)
-	 * @param g_func - {@link ICAGFunction} to estimate negative entropy 
+	 * @param g_func - {@link NegativeEntropyEstimator} to estimate negative entropy 
 	 * @param tolerance - maximum allowable convergence error
 	 * @param max_iter - max number of iterations
 	 * @param whiten - whiten the data matrix (default true)
 	 */
-	public FastICA(SimpleMatrix data, ICAGFunction g_func, double tolerance, int max_iter, boolean whiten) {
+	public FastICA(NegativeEntropyEstimator g_func, double tolerance, int max_iter, boolean whiten) {
 		this.G = g_func;
 		this.tolerance = tolerance;
 		this.max_iter = max_iter;
-		
-		this.X = center(data);
-		
-		if (whiten) {
-			this.X = whiten(X);
-		}
-		
-		// get the size parameter of the symmetric W matrix
-		num_components = Math.min(X.getColumnDimension(), X.getRowDimension());
-		W = gaussianRandomSquareMatrix(num_components);
+		this.whiten = whiten;
 	}
 	
 	/**
@@ -72,213 +74,176 @@ public class FastICA {
 	 * negative entropy and whitening/mean-centering of the data matrix. This 
 	 * implementation does not perform automatic component selection or reduction.
 	 * 
-	 * @param data - {@link SimpleMatrix} containing the source data; each column
-	 * contains a single signal, and each row contains one sample of all signals 
-	 * (rows contain instances, columns are features)
 	 * @param tolerance - maximum allowable convergence error
 	 * @param max_iter - max number of iterations
 	 */
-	public FastICA(SimpleMatrix data, double tolerance, int max_iter) {
-		this(data, new LogCosh(), tolerance, max_iter, true);
+	public FastICA(double tolerance, int max_iter) {
+		this(new LogCosh(), tolerance, max_iter, true);
 	}
-	
-//	public Matrix transform() {
-//		
-//	}
+
+	/**
+	 * Estimate the unmixing matrix for the data provided
+	 *
+	 * @param data - 2d array of doubles containing the data; each column
+	 * contains a single signal, and each row contains one sample of all 
+	 * signals (rows contain instances, columns are features)
+	 */
+	public void fit(double[][] data) {
+		this.X = center(new SimpleMatrix(data));
+		this.m = X.numRows();
+		this.n = X.numCols();
+		
+		// get the size parameter of the symmetric W matrix; size cannot be
+		// larger than the number of samples or the number of features
+		this.num_components = Math.min(m, n);
+		
+		if (this.whiten) {
+			this.X = whiten(X);
+		}
+		
+		// start with an orthogonal initial W matrix drawn from a standard Normal distribution
+		W = symmetricDecorrelation(gaussianSquareMatrix(num_components));
+		
+		// fit the data
+		parallel_ica();
+	}
 	
 	/*
 	 * FastICA main loop - default uses symmetric decorrelation. (i.e., 
 	 * estimate all the independent components in parallel)
 	 */
-	public Matrix parallel_ica() {
+	private void parallel_ica() { 
 		
-		int m = X.getRowDimension();
-		int n = X.getColumnDimension();
-		Matrix W1 = new Matrix(m, n);
-		double[][] W1_ = W1.getArray();
+		SimpleMatrix W_next, diag;
 		
-		W = symmetricOrthogonalization(W);
 		for (int iter = 0; iter < max_iter; iter++) {
-			G.apply(W.times(X));
-			Matrix gx = G.getGx();
-			Matrix A = gx.times(X.transpose());
-			A.timesEquals(1. / new Double(n));
-			A.minusEquals(rowMultiply(W, G.getGpx()));
-			W1 = symmetricOrthogonalization(A);
 			
-			double lim = max(abs(add(abs(diag(W1.times(W.transpose()))),-1)));
-			W = W1;
-			if (lim < tolerance) 
+			// Calculate the neg entropy estimate and first derivative
+			G.estimate(W.mult(X));
+			
+			// Update the W matrix
+			W_next = G.getGx().transpose().mult(X).scale(1. / new Double(n));
+			for (int i = 0; i < m; i++) {
+				SimpleMatrix row = W_next.extractVector(true, i);
+				W_next.insertIntoThis(i, 0, row.minus(row.elementMult(G.getG_x())));
+			}
+			W_next = symmetricDecorrelation(W_next);
+
+			diag = W_next.mult(W.transpose()).extractDiag();
+			W = W_next;
+			
+			// Test convergence criteria
+			double largest = 0;
+			for (int i = 0; i < diag.numRows(); i++) {
+				double element = Math.abs(Math.abs(diag.get(i)) - 1);
+				if (element > largest)
+					largest = element;
+			}
+			if (largest < tolerance) 
 				break;
 		}
-		return W;
+		
+		// project the data to extract the estimated source components
+		X_ = X.mult(W.mult(K));
+		
+		// TODO: The filter should warn before returning if the transform did not converge
 	}
 	
-//	private Matrix rowMultiply(Matrix A, Matrix B) {
-//		double[][] _A = A.getArrayCopy();
-//		double[][] _B = B.getArray();
-//		
-//		for (int i = 0; i < A.getRowDimension(); i++) {
-//			for (int j = 0; j < A.getColumnDimension(); j++) {
-//				_A[i][j] *= _B[i][0];
-//			}
-//		}
-//		return new Matrix(_A);
-//	}
-//	
-//	private Matrix colMultiply(Matrix A, Matrix B) {
-//		double[][] _A = A.getArrayCopy();
-//		double[][] _B = B.getArray();
-//
-//		for (int i = 0; i < A.getRowDimension(); i++) {
-//			for (int j = 0; j < A.getColumnDimension(); j++) {
-//				_A[i][j] *= _B[0][j];
-//			}
-//		}
-//		return new Matrix(_A);
-//	}
-//	
-//	private Matrix recip(Matrix A) {
-//		double[][] _A = A.getArrayCopy();
-//		
-//		for (int i = 0; i < A.getRowDimension(); i++) {
-//			for (int j = 0; j < A.getColumnDimension(); j++) {
-//				_A[i][j] = 1. / _A[i][j];
-//			}
-//		}
-//		return new Matrix(_A);
-//	}
-//	
-//	private Matrix diag(Matrix A) {
-//		int l = Math.min(A.getColumnDimension(), A.getRowDimension());
-//		Matrix x = new Matrix(1, l, 0);
-//		double[][] x_ = x.getArray();
-//		for (int i = 0; i < l; i++) {
-//			x_[0][i] = A.get(i, i);
-//		}
-//		return x;
-//	}
-//	
-//	private double max(Matrix A) {
-//		double[][] _A = A.getArray();
-//		double x = 0;
-//		for (int i = 0; i < A.getRowDimension(); i++) {
-//			for (int j = 0; j < A.getColumnDimension(); j++) {
-//				if (_A[i][j] > x) {
-//					x = _A[i][j];
-//				}
-//			}
-//		}
-//		return x;
-//	}
-//	
-//	private Matrix abs(Matrix A) {
-//		double[][] _A = A.getArrayCopy();
-//		for (int i = 0; i < A.getRowDimension(); i++) {
-//			for (int j = 0; j < A.getColumnDimension(); j++) {
-//				_A[i][j] = Math.abs(_A[i][j]);
-//			}
-//		}
-//		return new Matrix(_A);
-//	}
-//	
-//	private Matrix add(Matrix A, double x) {
-//		double[][] _A = A.getArrayCopy();
-//		for (int i = 0; i < A.getRowDimension(); i++) {
-//			for (int j = 0; j < A.getColumnDimension(); j++) {
-//				_A[i][j] -= x;
-//			}
-//		}
-//		return new Matrix(_A);
-//	}
-	
 	/*
-	 * Generate a matrix filled with standard Gaussian random variables
-	 * with zero mean and unit variance. This implementation is ported from
-	 * the sklearn python package.
+	 * Whiten a matrix of column vectors by decorrelating and scaling the 
+	 * elements according to: x_new = ED^{-1/2}E'x , where E is the
+	 * orthogonal matrix of eigenvectors of E{xx'}. In this implementation
+	 * based on the FastICA sklearn Python package the eigen decomposition is 
+	 * replaced with the SVD.
+	 * 
+	 * Testing this method is difficult because the decomposition is ambiguous
+	 * with regard to the direction of column vectors (they can be either +/-
+	 * without changing the result).
 	 */
-	private Matrix gaussianRandomSquareMatrix(int size) {
-		Matrix m = new Matrix(size, size);
+	private SimpleMatrix whiten(SimpleMatrix x) {
+		// get compact SVD (D matrix is min(m,n) square)
+		SimpleSVD svd = x.svd(true);
 		
-		Random random = new Random();
-		for (int i = 0; i < size; i++) {
-			for (int j = 0; j < size; j++) {
-				m.set(i, j, random.nextGaussian());
-			}
-		}
-		return m;
+		// TODO: K should only keep `num_components` columns (ordered from
+		// smallest to largest) if performing dimensionality reduction
+		K = svd.getV().mult(svd.getW().invert());
+	
+		SimpleMatrix ret = x.mult(K);
+		ret = ret.scale(Math.sqrt(x.numRows()));
+		return ret;
 	}
 	
 	/*
 	 * Center a matrix by subtracting the average of each column vector
 	 * from every element in the column
 	 */
-	public static SimpleMatrix center(SimpleMatrix x) {
+	private static SimpleMatrix center(SimpleMatrix x) {
+		SimpleMatrix ret = x.copy();
 		SimpleMatrix col;
 		double mean;
 		int m = x.numRows();
 		int n = x.numCols();
+		
 		for (int i = 0; i < n; i++) {
 			col = x.extractVector(false, i);
 			mean = col.elementSum() / new Double(m);
 			for (int j = 0; j < m; j++) {
 				col.set(j, col.get(j) - mean);
 			}
-			x.insertIntoThis(0, i, col);
+			ret.insertIntoThis(0, i, col);
 		}
-		return x;
+		return ret;
 	}
 	
 	/*
-	 * Whiten a matrix, x,  of column vectors by decorrelating and 
-	 * scaling the elements according to: x_ = ED^{-1/2}E'x , where E is the
-	 * orthogonal matrix of eigenvectors of E{xx'}. In this implementation,
-	 * the eigen decomposition is replaced with the SVD based on the FastICA
-	 * implementation in the sklearn Python package.
+	 * Randomly generate a square matrix drawn from a standard gaussian 
+	 * distribution.
 	 * 
-	 * Testing this method is difficult because the decomposition is ambiguous
-	 * with regard to the direction of column vectors - they can be +/-.
 	 */
-	public static SimpleMatrix whiten(SimpleMatrix x) {
-		// get compact SVD (D matrix is min(m,n) square)
-		SimpleSVD svd = x.svd(true);   
-		
-		// TODO: K should only keep `num_components` columns if performing
-		// dimensionality reduction
-		SimpleMatrix K = svd.getV().mult(svd.getW().invert());
-	
-		SimpleMatrix x_ = x.mult(K);
-		x_ = x_.scale(Math.sqrt(x.numRows()));
-		return x_;
-	}
-	
-	/*
-	 * Return a copy of the input matrix of row vectors that has been updated 
-	 * according to the rule for FastICA: B <- B.B' ^{-1/2} * B, from the
-	 * sklearn python module for fastica.
-	 * 
-	 * NOTE: There are only real eigenvalues because x.x' is Hermitian
-	 */
-	public static SimpleMatrix symmetricDecorrelation(SimpleMatrix x) {
-		
-		
-		EigenvalueDecomposition ev = x.times(x.transpose()).eig();
-		double[] e = ev.getRealEigenvalues();
-		for (int i = 0; i < e.length; i++) {
-			e[i] = Math.sqrt(e[i]);
-		}
-		
-		// scale each column of the u matrix by the square root of the 
-		// reciprocal of the associated eigenvalue to make the vectors 
-		// unit length
-		Matrix u = ev.getV().copy();
-		double[][] u_ = u.getArray();
-		for (int i = 0; i < u.getRowDimension(); i++) {
-			for (int j = 0; j < u.getColumnDimension(); j++) {
-				u_[i][j] /= e[j];
+	private static SimpleMatrix gaussianSquareMatrix(int size) {
+		SimpleMatrix ret = new SimpleMatrix(size, size);
+		Random rand = new Random();
+		for (int i = 0; i < size; i++) {
+			for (int j = 0; j < size; j++) {
+				ret.set(i, j, rand.nextGaussian());
 			}
 		}
-		return x.times(u.times(ev.getV().transpose()));
+		return ret;
+	}
+	
+	/*
+	 * Perform symmetric decorrelation on the input matrix to ensure that each
+	 * column is independent from all the others. This is required in order
+	 * to prevent FastICA from solving for the same components in multiple
+	 * columns.
+	 * 
+	 * NOTE: There are only real eigenvalues because x.x' is Hermitian
+	 * 
+	 * W <- W * (W.T * W)^{-1/2}
+	 * 
+	 * Python (Numpy):
+	 *   s, u = linalg.eigh(np.dot(W.T, W)) 
+	 *   W = np.dot(W, np.dot(u * (1. / np.sqrt(s)), u))
+	 * Matlab: 
+	 *   B = B * real(inv(B' * B)^(1/2))
+	 * 
+	 */
+	private static SimpleMatrix symmetricDecorrelation(SimpleMatrix x) {
+		SimpleEVD evd = x.mult(x.transpose()).eig();
+		int len = evd.getNumberOfEigenvalues();
+		SimpleMatrix u = new SimpleMatrix(len, len);
+		SimpleMatrix v = new SimpleMatrix(len, len);
+		double eigval;
+		
+		// Scale each column of the eigenvector matrix by the square root of 
+		// the reciprocal of the associated eigenvalue
+		for (int i = 0; i < len; i++) {
+			eigval = Math.sqrt(evd.getEigenvalue(i).getReal());
+			v.insertIntoThis(0, i, evd.getEigenVector(i));
+			u.insertIntoThis(0, i, evd.getEigenVector(i).divide(eigval));
+		}
+		
+		return u.mult(v.transpose()).mult(x);
 	}
 	
 }

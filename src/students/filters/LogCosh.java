@@ -1,20 +1,23 @@
 package students.filters;
 
-import weka.core.matrix.Matrix;
+import org.ejml.simple.SimpleMatrix;
 
 /**
- * Default G function used in FastICA to approxmate neg-entropy.
+ * Default function used in FastICA to approxmate neg-entropy.
  * 
  * @author Chris Gearhart <cgearhart3@gatech.edu>
  *
  */
-public class LogCosh implements ICAGFunction {
+public class LogCosh implements NegativeEntropyEstimator {
 	
-	private Matrix gx;
+	// Element-wise application of the neg-entropy function applied to data matrix
+	private SimpleMatrix gx;
 	
-	private Matrix g_x;
+	// Column-wise average of the first derivative of gx; i.e., the average of 1 - gx[i]**2
+	private SimpleMatrix g_x;
 	
-	private double alpha;
+	// Scaling factor
+	private final double alpha;
 	
 	public LogCosh(double alpha) {
 		this.alpha = alpha;
@@ -24,30 +27,34 @@ public class LogCosh implements ICAGFunction {
 		this(1.);
 	}
 	
-	public void apply(Matrix x) {
-		int rows = x.getRowDimension();
-		int cols = x.getColumnDimension();
-		gx = new Matrix(rows, cols);
-		g_x = new Matrix(rows, 1);
-		double[][] gx_ = gx.getArray();
-		double[][] g_x_ = g_x.getArray();	
-		double[][] x_ = x.getArray();
-		
-		for (int i = 0; i < rows; i++) {
-			double mean = 0;
-			for (int j = 0; j < cols; j++) {
-				gx_[i][j] = Math.tanh(x_[i][j]);
-				mean += alpha * (1 - Math.pow(gx_[i][j], 2));
+	/**
+	 * 
+	 * @param x - {@link SimpleMatrix} of column vectors for each feature
+	 */
+	@Override
+	public void estimate(SimpleMatrix x) {
+		int m = x.numRows();
+		int n = x.numCols();
+		gx = new SimpleMatrix(m, n);
+		g_x = new SimpleMatrix(1, n);
+		for (int j = 0; j < n; j++) {
+			for (int i = 0; i < m; i++) {
+				gx.set(i, j, Math.tanh(x.get(i, j)));
+				double gx_i = alpha * (1 - Math.pow(gx.get(i, j), 2));
+				g_x.set(0, j, g_x.get(i,j) + gx_i);
 			}
-			g_x_[i][0] = mean / new Double(cols);
+			g_x.set(0, j, g_x.get(0, j) / new Double(m));
 		}
+
 	}
 	
-	public Matrix getGx() {
+	@Override
+	public SimpleMatrix getGx() {
 		return gx;
 	}
 	
-	public Matrix getGpx() {
+	@Override
+	public SimpleMatrix getG_x() {
 		return g_x;
 	}
 }

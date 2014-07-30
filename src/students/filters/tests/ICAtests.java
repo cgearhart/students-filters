@@ -43,14 +43,6 @@ public class ICAtests {
 //			
 //		}
 	}
-	
-	@Test
-	public void testCenter() {
-		SimpleMatrix x = new SimpleMatrix(new double[][]{{1,3,8},{1,4,7}});
-		SimpleMatrix x_ = new SimpleMatrix(new double[][]{{-3, -1, 4}, {-3, 0, 3}});
-		x = FastICA.center(x.transpose());
-		assertTrue(x.isIdentical(x_.transpose(), 1E-5));
-	}
 
 	@Test
 	public void testParallelICA() {
