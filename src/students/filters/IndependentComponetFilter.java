@@ -6,8 +6,9 @@ import weka.core.RevisionUtils;
 import weka.filters.SimpleBatchFilter;
 
 public class IndependentComponetFilter extends SimpleBatchFilter {
+	/** for serialization. */
+	private static final long serialVersionUID = -5416810876710954131L;
 	
-	static final long serialVersionUID = 0;
 
 	@Override
 	public String globalInfo() {
