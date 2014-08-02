@@ -68,9 +68,22 @@ public class FastICA {
 		this.max_iter = max_iter;
 		this.whiten = whiten;
 	}
+
 	
 	/**
-	 * Default FastICA instance using the LogCosh() function to estimate
+	 * FastICA instance using the LogCosh() function to estimate
+	 * negative entropy and mean-centering with opitonal whitening of the data matrix. This 
+	 * implementation does not perform automatic component selection or reduction.
+	 * 
+	 * @param tolerance - maximum allowable convergence error
+	 * @param max_iter - max number of iterations
+	 */
+	public FastICA(double tolerance, int max_iter, boolean whiten) {
+		this(new LogCosh(), tolerance, max_iter, whiten);
+	}
+	
+	/**
+	 * FastICA instance using the LogCosh() function to estimate
 	 * negative entropy and whitening/mean-centering of the data matrix. This 
 	 * implementation does not perform automatic component selection or reduction.
 	 * 
@@ -79,6 +92,57 @@ public class FastICA {
 	 */
 	public FastICA(double tolerance, int max_iter) {
 		this(new LogCosh(), tolerance, max_iter, true);
+	}
+	
+	/**
+	 * Default FastICA instance using the LogCosh() function to estimate
+	 * negative entropy and whitening/mean-centering of the data matrix with
+	 * simple default values.
+	 */
+	public FastICA() {
+		this(new LogCosh(), 1E-4, 200, true);
+	}
+	
+	/**
+	 * 
+	 * @return X_ - row-indexed double[][] containing estimated sources  
+	 */
+	public double[][] getSources() {
+		double[][] result = new double[m][n];
+		for (int i = 0; i < m; i++) {
+			for (int j = 0; j < n; j++) {
+				result[i][j] = X_.get(i, j);
+			}
+		}
+		return result;
+	}
+	
+	/**
+	 * 
+	 * @return W - double[][] matrix containing estimated independent component projection matrix
+	 */
+	public double[][] getUnmixingMatrix() {
+		double[][] result = new double[W.numRows()][W.numCols()];
+		for (int i = 0; i < W.numRows(); i++) {
+			for (int j = 0; j < W.numCols(); j++) {
+				result[i][j] = W.get(i, j);
+			}
+		}
+		return result;
+	}
+	
+	/**
+	 * 
+	 * @return K - double[][] matrix containing the pre-whitening matrix
+	 */
+	public double[][] getWhiteningMatrix() {
+		double[][] result = new double[K.numRows()][K.numCols()];
+		for (int i = 0; i < K.numRows(); i++) {
+			for (int j = 0; j < K.numCols(); j++) {
+				result[i][j] = K.get(i, j);
+			}
+		}
+		return result;
 	}
 
 	/**
@@ -118,7 +182,7 @@ public class FastICA {
 		
 		for (int iter = 0; iter < max_iter; iter++) {
 			
-			// Calculate the neg entropy estimate and first derivative
+			// Calculate the neg entropy estimate and first derivative average
 			G.estimate(W.mult(X));
 			
 			// Update the W matrix
@@ -129,18 +193,20 @@ public class FastICA {
 			}
 			W_next = symmetricDecorrelation(W_next);
 
+			// Calculate the W matrix convergence
 			diag = W_next.mult(W.transpose()).extractDiag();
 			W = W_next;
 			
-			// Test convergence criteria
+			// Test convergence criteria for all elements on the diagonal
 			double largest = 0;
 			for (int i = 0; i < diag.numRows(); i++) {
 				double element = Math.abs(Math.abs(diag.get(i)) - 1);
 				if (element > largest)
 					largest = element;
 			}
-			if (largest < tolerance) 
+			if (largest < tolerance) {
 				break;
+			}
 		}
 		
 		// project the data to extract the estimated source components
