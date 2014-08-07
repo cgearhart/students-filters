@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<project default="create_run_jar" name="Create Runnable Jar for Project filters">
+    <!--this file was created by Eclipse Runnable JAR Export Wizard-->
+    <!--ANT 1.7 is required                                        -->
+    <target name="create_run_jar">
+        <jar destfile="/Users/CG/dev/java/workspace/filters/StudentFilters.jar" filesetmanifest="mergewithoutmain">
+            <manifest>
+                <attribute name="Main-Class" value="weka.filters.unsupervised.attribute.FastICA"/>
+                <attribute name="Class-Path" value="."/>
+            </manifest>
+            <fileset dir="/Users/CG/dev/java/workspace/filters/target/classes"/>
+            <zipfileset excludes="META-INF/*.SF" src="/Users/CG/lib/weka-3-7-10/weka.jar"/>
+            <zipfileset excludes="META-INF/*.SF" src="/Applications/android/adt-bundle-mac-x86_64-20131030/eclipse/plugins/org.junit_4.10.0.v4_10_0_v20120426-0900/junit.jar"/>
+            <zipfileset excludes="META-INF/*.SF" src="/Applications/android/adt-bundle-mac-x86_64-20131030/eclipse/plugins/org.hamcrest.core_1.1.0.v20090501071000.jar"/>
+            <zipfileset excludes="META-INF/*.SF" src="/Users/CG/.m2/repository/com/googlecode/efficient-java-matrix-library/ejml/0.25/ejml-0.25.jar"/>
+        </jar>
+    </target>
+</project>
