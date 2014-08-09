@@ -60,17 +60,21 @@ public class LogCosh implements NegativeEntropyEstimator {
 	 */
 	@Override
 	public void estimate(SimpleMatrix x) {
+		double val;
+		double tmp;
 		int m = x.numRows();
 		int n = x.numCols();
+		
 		gx = new SimpleMatrix(m, n);
 		g_x = new SimpleMatrix(1, n);
 		for (int j = 0; j < n; j++) {
+			tmp = 0;
 			for (int i = 0; i < m; i++) {
-				gx.set(i, j, Math.tanh(x.get(i, j)));
-				double gx_i = alpha * (1 - Math.pow(gx.get(i, j), 2));
-				g_x.set(0, j, g_x.get(0, j) + gx_i);
+				val = Math.tanh(x.get(i, j));
+				gx.set(i, j, val);
+				tmp += alpha * (1 - Math.pow(val, 2));
 			}
-			g_x.set(0, j, g_x.get(0, j) / new Double(m));
+			g_x.set(0, j, tmp / new Double(m));
 		}
 
 	}

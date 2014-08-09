@@ -25,13 +25,17 @@
  * For more information, please refer to <http://unlicense.org/>
  */
 
-package weka.filters.unsupervised.attribute;
+package filters;
 
 import java.util.Random;
 
 import org.ejml.simple.SimpleEVD;
 import org.ejml.simple.SimpleMatrix;
 import org.ejml.simple.SimpleSVD;
+
+import weka.filters.unsupervised.attribute.LogCosh;
+import weka.filters.unsupervised.attribute.NegativeEntropyEstimator;
+
 
 /**
  * FastICA port of Python scikit-learn implementation.
@@ -47,14 +51,14 @@ public class FastICA {
 	// The pre-whitening matrix
 	private SimpleMatrix K;
 	
+	// the product of K and W
+	private SimpleMatrix KW;
+	
 	// The data matrix
 	private SimpleMatrix X;
 	
-	// The estimated source matrix
-	private SimpleMatrix X_;
-	
 	// The mean value of each column of the input matrix
-	private double[] X_mean;
+	private SimpleMatrix X_means;
 	
 	// Reference to non-linear neg-entropy estimator function
 	private NegativeEntropyEstimator G;
@@ -133,16 +137,7 @@ public class FastICA {
 	 * simple default values.
 	 */
 	public FastICA() {
-		this(new LogCosh(), 1E-4, 200, true);
-	}
-	
-	/**
-	 * Return the matrix containing the estimated sources
-	 * 
-	 * @return	X_	row-indexed double[][] containing estimated sources  
-	 */
-	public double[][] getS() {
-		return FastICA.mToA(X_);
+		this(new LogCosh(), 1E-5, 200, true);
 	}
 	
 	/**
@@ -189,9 +184,7 @@ public class FastICA {
 	 */
 	public double[][] transform(double[][] data) {
 		SimpleMatrix x = new SimpleMatrix(data);
-		SimpleMatrix means = new SimpleMatrix(1, X_mean.length);
-		means.setRow(0, 0, X_mean);
-		return FastICA.mToA(x.minus(means).mult(K).mult(W));
+		return FastICA.mToA(x.minus(X_means).mult(KW));
 	}
 
 	/**
@@ -202,35 +195,45 @@ public class FastICA {
 	 * signals (rows contain instances, columns are features)
 	 */
 	public void fit(double[][] data, int num_components) throws Exception {
-		this.X = new SimpleMatrix(data);
-		this.m = X.numRows();
-		this.n = X.numCols();
-		center();
+		X = new SimpleMatrix(data);
+		m = X.numRows();
+		n = X.numCols();
+
+		// mean center the attributes in X
+		double[] means = center(X);
+		X_means = new SimpleMatrix(new double[][]{means});
 		
 		// get the size parameter of the symmetric W matrix; size cannot be
 		// larger than the number of samples or the number of features
 		this.num_components = Math.min(Math.min(m, n), num_components);
 		
+		K = SimpleMatrix.identity(this.num_components);  // init K
 		if (this.whiten) {
-			this.X = whiten(X);
-		} else {
-			this.K = SimpleMatrix.identity(this.num_components);
+			X = whiten(X);  // sets K
 		}
-		
+				
 		// start with an orthogonal initial W matrix drawn from a standard Normal distribution
-		W = symmetricDecorrelation(gaussianSquareMatrix(this.num_components));
-		
+		W = symmetricDecorrelation(gaussianSquareMatrix(num_components));
+
 		// fit the data
-		parallel_ica();
+		parallel_ica();  // solves for W
+		
+		// Store the resulting transformation matrix
+		KW = K.mult(W);
+
 	}
 	
 	/*
 	 * FastICA main loop - using default symmetric decorrelation. (i.e., 
 	 * estimate all the independent components in parallel)
 	 */
-	private void parallel_ica() throws Exception { 
+	private void parallel_ica() throws Exception {
 		
-		SimpleMatrix W_next, diag;
+		double tmp;
+		double lim;
+		SimpleMatrix W_next;
+		SimpleMatrix newRow;
+		SimpleMatrix oldRow;
 		
 		for (int iter = 0; iter < max_iter; iter++) {
 			
@@ -238,35 +241,34 @@ public class FastICA {
 			G.estimate(X.mult(W));
 			
 			// Update the W matrix
-			W_next = G.getGx().transpose().mult(X).scale(1. / new Double(n));
+			W_next = X.transpose().mult(G.getGx()).scale(1. / new Double(n));			
 			for (int i = 0; i < num_components; i++) {
-				SimpleMatrix row = W_next.extractVector(true, i);
-				W_next.insertIntoThis(i, 0, row.minus(row.elementMult(G.getG_x())));
+				newRow = W_next.extractVector(true, i);
+				oldRow = W.extractVector(true, i);
+				W_next.insertIntoThis(i, 0, 
+						newRow.minus(oldRow.elementMult(G.getG_x())));
 			}
 			W_next = symmetricDecorrelation(W_next);
 
-			// Calculate the W matrix convergence
-			diag = W_next.mult(W.transpose()).extractDiag();
+			// Test convergence criteria for W
+			lim = 0;
+			for (int i = 0; i < W.numRows(); i++) {
+				newRow = W_next.extractVector(true, i);
+				oldRow = W.extractVector(true, i);
+				tmp = newRow.dot(oldRow.transpose());
+				tmp = Math.abs(Math.abs(tmp) - 1);
+				if (tmp > lim) {
+					lim = tmp;
+				}
+			}
 			W = W_next;
 			
-			// Test convergence criteria for all elements on the diagonal
-			double largest = 0;
-			for (int i = 0; i < diag.numRows(); i++) {
-				double element = Math.abs(Math.abs(diag.get(i)) - 1);
-				if (element > largest)
-					largest = element;
-			}
-			if (largest < tolerance) {
-				break;
-			} else if (iter == max_iter - 1) {
-				throw new Exception("ICA did not converge - try again with more iterations.");
+			if (lim < tolerance) {
+				return;
 			}
 		}
-
-		// project the data to extract the estimated source components and add the means
-		SimpleMatrix ones = new SimpleMatrix(m, n);
-		ones.set(1);
-		X_ = X.mult(W.mult(K)).plus(ones.mult(SimpleMatrix.diag(X_mean)));
+		
+		throw new Exception("ICA did not converge - try again with more iterations.");
 	}
 	
 	/*
@@ -288,46 +290,33 @@ public class FastICA {
 		// dimensionality reduction
 		K = svd.getV().mult(svd.getW().invert())
 				.extractMatrix(0, x.numCols(), 0, num_components);
-//		K = K.scale(-1);  // sklearn returns this version for K
+//		K = K.scale(-1);  // sklearn returns this version for K; doesn't affect results
 		
-		SimpleMatrix ret = x.mult(K);
-		ret = ret.scale(Math.sqrt(x.numRows()));
-		return ret;
+//		return x.mult(K).scale(Math.sqrt(m));  // sklearn scales the input
+		return x.mult(K);
 	}
 	
 	/*
-	 * Center the input matrix by subtracting the average of each column vector
-	 * from every element in the column
+	 * Center the input matrix and store it in X by subtracting the average of 
+	 * each column vector from every element in the column
 	 */
-	private void center() {
+	private double[] center(SimpleMatrix x) {
 		SimpleMatrix col;
-		double mean;
+		int numrows = x.numRows();
+		int numcols = x.numCols();
+		double[] means;
 		
-		X_mean = new double[n];
-		for (int i = 0; i < n; i++) {
-			col = X.extractVector(false, i);
-			mean = col.elementSum() / new Double(m);
-			for (int j = 0; j < m; j++) {
-				col.set(j, col.get(j) - mean);
+		means = new double[numcols];
+		for (int i = 0; i < numcols; i++) {
+			col = x.extractVector(false, i);
+			means[i] = col.elementSum() / new Double(numrows);
+			for (int j = 0; j < numrows; j++) {
+				col.set(j, col.get(j) - means[i]);
 			}
-			X_mean[i] = mean;
 			X.insertIntoThis(0, i, col);
 		}
-	}
-	
-	/*
-	 * Randomly generate a square matrix drawn from a standard gaussian 
-	 * distribution.
-	 */
-	private static SimpleMatrix gaussianSquareMatrix(int size) {
-		SimpleMatrix ret = new SimpleMatrix(size, size);
-		Random rand = new Random();
-		for (int i = 0; i < size; i++) {
-			for (int j = 0; j < size; j++) {
-				ret.set(i, j, rand.nextGaussian());
-			}
-		}
-		return ret;
+		
+		return means;
 	}
 	
 	/*
@@ -349,29 +338,50 @@ public class FastICA {
 	 */
 	@SuppressWarnings("rawtypes")
 	private static SimpleMatrix symmetricDecorrelation(SimpleMatrix x) {
-		SimpleEVD evd = x.mult(x.transpose()).eig();
+		
+		double d;
+		SimpleMatrix QL;
+		SimpleMatrix Q;
+		
+		SimpleEVD evd = x.transpose().mult(x).eig();
 		int len = evd.getNumberOfEigenvalues();
-		SimpleMatrix u = new SimpleMatrix(len, len);
-		SimpleMatrix v = new SimpleMatrix(len, len);
-		double eigval;
+		QL = new SimpleMatrix(len, len);
+		Q = new SimpleMatrix(len, len);
 		
 		// Scale each column of the eigenvector matrix by the square root of 
 		// the reciprocal of the associated eigenvalue
 		for (int i = 0; i < len; i++) {
-			eigval = Math.sqrt(evd.getEigenvalue(i).getReal());
-			v.insertIntoThis(0, i, evd.getEigenVector(i));
-			u.insertIntoThis(0, i, evd.getEigenVector(i).divide(eigval));
+			d = evd.getEigenvalue(i).getReal();
+			d = (d + Math.abs(d)) / 2;  // improve numerical stability by eliminating small negatives near singular matrix zeros
+			QL.insertIntoThis(0, i, evd.getEigenVector(i).divide(Math.sqrt(d)));
+			Q.insertIntoThis(0, i, evd.getEigenVector(i));
 		}
 		
-		return u.mult(v.transpose()).mult(x);
+		return x.mult(QL.mult(Q.transpose()));
+	}
+	
+	/*
+	 * Randomly generate a square matrix drawn from a standard gaussian 
+	 * distribution.
+	 */
+	private static SimpleMatrix gaussianSquareMatrix(int size) {
+		SimpleMatrix ret = new SimpleMatrix(size, size);
+		Random rand = new Random();
+		for (int i = 0; i < size; i++) {
+			for (int j = 0; j < size; j++) {
+				ret.set(i, j, rand.nextGaussian());
+			}
+		}
+		return ret;
 	}
 	
 	/*
 	 * Convert a {@link SimpleMatrix} to a 2d array of double[][]
 	 */
 	private static double[][] mToA(SimpleMatrix x) {
-		double[][] result = new double[x.numRows()][x.numCols()];
+		double[][] result = new double[x.numRows()][];
 		for (int i = 0; i < x.numRows(); i++) {
+			result[i] = new double[x.numCols()];
 			for (int j = 0; j < x.numCols(); j++) {
 				result[i][j] = x.get(i, j);
 			}

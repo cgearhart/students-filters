@@ -31,6 +31,9 @@ import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.Vector;
 
+import filters.FastICA;
+
+
 import weka.core.Attribute;
 import weka.core.AttributeStats;
 import weka.core.Capabilities;
@@ -40,7 +43,6 @@ import weka.core.Instances;
 import weka.core.Option;
 import weka.core.OptionHandler;
 import weka.core.RevisionUtils;
-import weka.core.SparseInstance;
 import weka.core.Capabilities.Capability;
 import weka.core.Utils;
 import weka.filters.Filter;
@@ -293,7 +295,8 @@ public class IndependentComponents
 	    
 	    // Copy the class attribute from the input (if set)
 	    if (inputFormat.classIndex() >= 0) {
-	    	m_hasClass = true;	
+	    	m_hasClass = true;
+	    	attributes.remove(m_numAttributes - 1);  // remove the last source first
 	    	attributes.add((Attribute) inputFormat.classAttribute().copy());
 	    }
 	    
@@ -342,26 +345,28 @@ public class IndependentComponents
 	protected Instance convertInstance(Instance instance) throws Exception {
 		
 		Instance inst;
+		Instance tmp;
 		double[][] input = new double[1][];
 		double[][] result;
 		
 		if (m_filter == null) {
 			throw new Exception("No ICA instance has been trained.");
 		}
-		
-		// If there is a class attribute in the input instance, drop it
-		if (instance.classIndex() >= 0) {
-			instance.deleteAttributeAt(instance.classIndex());
-		}
 
-		// get a double[][] of the data from the instance and transform it
-		input[0] = instance.toDoubleArray();
+		// make a copy of the instance and transform it
+		tmp = new DenseInstance(instance);
+		if (instance.classIndex() >= 0) {
+			tmp.deleteAttributeAt(instance.classIndex());
+		}
+		input[0] = tmp.toDoubleArray();
 		result = m_filter.transform(input);
 		
-		if (instance instanceof SparseInstance) {
-			inst = new SparseInstance(instance.weight(), result[0]);
-		} else {
-			inst = new DenseInstance(instance.weight(), result[0]);
+		// copy the results back into an instance
+		inst = new DenseInstance(1.0, result[0]);
+		
+		if (instance.classIndex() >= 0) {
+			tmp = new DenseInstance(1., new double[]{instance.classValue()});
+			inst.mergeInstance(tmp);
 		}
 		
 		return inst;

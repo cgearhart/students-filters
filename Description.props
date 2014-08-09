@@ -29,7 +29,7 @@ License=Unlicense
 Description=Student's filters is a set of unsupervised learning algorithms (initially only a port of parallel FastICA for Independent Component Analysis) that should be particularly useful for the ML classes at Georgia Tech.
 
 # Package URL for obtaining the package archive (required)
-PackageURL=https://github.com/cgearhart/students-filters/archive/master.zip
+PackageURL=https://github.com/cgearhart/students-filters/raw/master/StudentFilters.zip
 
 # URL for further information
 URL=https://github.com/cgearhart/students-filters/
