@@ -33,8 +33,6 @@ import org.ejml.simple.SimpleEVD;
 import org.ejml.simple.SimpleMatrix;
 import org.ejml.simple.SimpleSVD;
 
-import weka.filters.unsupervised.attribute.LogCosh;
-import weka.filters.unsupervised.attribute.NegativeEntropyEstimator;
 
 
 /**

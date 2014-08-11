@@ -25,44 +25,68 @@
  * For more information, please refer to <http://unlicense.org/>
  */
 
-package weka.filters.unsupervised.attribute;
+package filters;
 
 import org.ejml.simple.SimpleMatrix;
 
 
 /**
- * The entropy function is an approximation to neg-entropy in FastICA. Commonly 
- * used nonlinear functions include log-cosh (recommended as a good, 
- * general-purpose function), cubic, and exponential families. The function is
- * applied element-wise to each attribute of the data as part of the FastICA 
- * algorithm.
+ * Default function used in FastICA to approxmate neg-entropy.
  * 
  * @author Chris Gearhart <cgearhart3@gatech.edu>
+ *
  */
-public interface NegativeEntropyEstimator {
+public class LogCosh implements NegativeEntropyEstimator {
+	
+	// Element-wise application of the neg-entropy function applied to data matrix
+	private SimpleMatrix gx;
+	
+	// Column-wise average of the first derivative of gx; i.e., the average of 1 - gx[i]**2
+	private SimpleMatrix g_x;
+	
+	// Scaling factor
+	private final double alpha;
+	
+	public LogCosh(double alpha) {
+		this.alpha = alpha;
+	}
+	
+	public LogCosh() {
+		this(1.);
+	}
 	
 	/**
-	 * Estimate the negative entropy of the input data matrix and store 
-	 * the results.
 	 * 
-	 * @param 	x 		{@link SimpleMatrix} containing column vectors of data 
-	 * 				to transform
+	 * @param x - {@link SimpleMatrix} of column vectors for each feature
 	 */
-	abstract void estimate(SimpleMatrix x);
-	
-	/**
-	 * 
-	 * @return 	{@link SimpleMatrix} 	containing the value of the G function 
-	 * 				applied to each value of the input matrix
-	 */
-	abstract SimpleMatrix getGx();
-	
-	/**
-	 * 
-	 * @return 	{@link SimpleMatrix} 	containing the value of the average of
-	 * 				the first derivative of the G function applied to each 
-	 * 				value of the input matrix
-	 */
-	abstract SimpleMatrix getG_x();
+	@Override
+	public void estimate(SimpleMatrix x) {
+		double val;
+		double tmp;
+		int m = x.numRows();
+		int n = x.numCols();
+		
+		gx = new SimpleMatrix(m, n);
+		g_x = new SimpleMatrix(1, n);
+		for (int j = 0; j < n; j++) {
+			tmp = 0;
+			for (int i = 0; i < m; i++) {
+				val = Math.tanh(x.get(i, j));
+				gx.set(i, j, val);
+				tmp += alpha * (1 - Math.pow(val, 2));
+			}
+			g_x.set(0, j, tmp / new Double(m));
+		}
 
+	}
+	
+	@Override
+	public SimpleMatrix getGx() {
+		return gx;
+	}
+	
+	@Override
+	public SimpleMatrix getG_x() {
+		return g_x;
+	}
 }
