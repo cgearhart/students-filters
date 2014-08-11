@@ -276,6 +276,10 @@ public class IndependentComponents
 		
 		// Error if any data is missing or for non-numeric attributes
 		for (int j = 0; j < inputFormat.numAttributes(); j++) {
+			
+			if (j == inputFormat.classIndex()) {  // skip the class index
+				continue;
+			}
 
 			if (!inputFormat.attribute(j).isNumeric()) {
 				throw new Exception("All data must be numeric.");
@@ -335,18 +339,18 @@ public class IndependentComponents
 	 * FastICA filter object. This should not be called prior to training the
 	 * filter with input(), then calling batchFinished().
 	 * 
-	 * @param instance 		an {@link Instance} object containing one value of 
+	 * @param currentInstance 		an {@link Instance} object containing one value of 
 	 * 				each attribute
 	 * @return 				a {@link Instance} object containing the result of 
 	 * 				projecting the input into the ICA domain
 	 * @throws Exception	if the filter has not been trained, or the
 	 * 				transformation does not succeed
 	 */
-	protected Instance convertInstance(Instance instance) throws Exception {
+	protected Instance convertInstance(Instance currentInstance) throws Exception {
 		
-		Instance inst;
+		int last_idx;
 		Instance tmp;
-		double[][] input = new double[1][];
+		Instance inst;
 		double[][] result;
 		
 		if (m_filter == null) {
@@ -354,19 +358,20 @@ public class IndependentComponents
 		}
 
 		// make a copy of the instance and transform it
-		tmp = new DenseInstance(instance);
-		if (instance.classIndex() >= 0) {
-			tmp.deleteAttributeAt(instance.classIndex());
+		tmp = new DenseInstance(currentInstance);
+		if (currentInstance.classIndex() >= 0) {
+			tmp.deleteAttributeAt(currentInstance.classIndex());
 		}
-		input[0] = tmp.toDoubleArray();
-		result = m_filter.transform(input);
+		result = m_filter.transform(new double[][]{tmp.toDoubleArray()});
+		last_idx = result[0].length;
 		
 		// copy the results back into an instance
-		inst = new DenseInstance(1.0, result[0]);
-		
-		if (instance.classIndex() >= 0) {
-			tmp = new DenseInstance(1., new double[]{instance.classValue()});
-			inst.mergeInstance(tmp);
+		inst = new DenseInstance(getOutputFormat().numAttributes());
+		for (int i = 0; i < last_idx; i++) {
+			inst.setValue(i, result[0][i]);
+		}
+		if (currentInstance.classIndex() >= 0) {
+			inst.setValue(last_idx, currentInstance.classValue());
 		}
 		
 		return inst;
@@ -397,6 +402,7 @@ public class IndependentComponents
 		}
 		
 		inputs = getInputFormat();
+
 		m_numAttributes = (m_numAttributes == -1) ? inputs.numAttributes() : m_numAttributes;
 		setOutputFormat(determineOutputFormat(inputs));
 		setup(inputs);
@@ -433,7 +439,7 @@ public class IndependentComponents
 		
 		// Perform ICA
 		m_filter = new FastICA(m_tolerance, m_numIterations, m_whiten);
-		m_filter.fit(readings, m_numAttributes);
+		m_filter.fit(readings, data.numAttributes());
 	}
 	
 	/*
