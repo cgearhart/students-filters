@@ -44,6 +44,18 @@ NOTE: the EMJL library needs to be installed on your system in the expected loca
 
 Once the filter is installed with the package manager, or has been simply unzipped to the package folder on the weka path, it will automatically appear in the WEKA gui. (The GUI must usually be restarted after new packages are added.) See the WEKA [documentation](http://weka.wikispaces.com/How+do+I+use+the+package+manager%3F) for more details.
 
+### Alternative Maven Build
+
+The `pom.xml` file can be used with [Apache Maven](http://maven.apache.org/) to rebuild `filters-0.0.1-SNAPSHOT.jar` by running:
+
+    mvn install -Dmaven.test.skip=true
+
+NOTE: dependencies will be handled automatically by Maven.
+
+GUI can then be launched with
+
+	java -Xmx1g -classpath <maven_path>/.m2/repository/com/googlecode/efficient-java-matrix-library/ejml/0.25/ejml-0.25.jar:<maven_path>/.m2/repository/nz/ac/waikato/cms/weka/weka-dev/3.7.10/weka-dev-3.7.10.jar:<maven_path>/.m2/repository/net/sf/squirrel-sql/thirdparty-non-maven/java-cup/0.11a/java-cup-0.11a.jar:<maven_path>/.m2/repository/org/pentaho/pentaho-commons/pentaho-package-manager/1.0.8/pentaho-package-manager-1.0.8.jar:<maven_path>/.m2/repository/junit/junit/4.11/junit-4.11.jar:<maven_path>/.m2/repository/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar weka.gui.Main
+
 ## License
 
 The filters are dependent on [WEKA](http://www.cs.waikato.ac.nz/~ml/weka/index.html) (licensed under [GPL](http://www.gnu.org/licenses/gpl.html)) and the Efficient Java Matrix Library ([EJML](https://code.google.com/p/efficient-java-matrix-library/)) (licensed under [Apache License 2.0](http://www.apache.org/licenses/LICENSE-2.0)). The [FastICA](http://research.ics.aalto.fi/ica/newindex.shtml) algorithm is released under the [GPL](http://research.ics.aalto.fi/ica/fastica/about.shtml). The implementation in this package is based on the [scikit-learn](http://scikit-learn.org/stable/index.html) implementation which is released under [BSD](https://github.com/scikit-learn/scikit-learn/blob/master/COPYING). To the extent that there may be any original copyright, it is licensed under the [Unlicense](http://unlicense.org/) - i.e., it is released to the Public Domain.
