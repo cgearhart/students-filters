@@ -54,7 +54,7 @@ NOTE: dependencies will be handled automatically by Maven.
 
 GUI can then be launched with
 
-	java -Xmx1g -classpath <user_home>/.m2/repository/com/googlecode/efficient-java-matrix-library/ejml/0.25/ejml-0.25.jar:<user_home>/.m2/repository/nz/ac/waikato/cms/weka/weka-dev/3.7.10/weka-dev-3.7.10.jar:<user_home>/.m2/repository/net/sf/squirrel-sql/thirdparty-non-maven/java-cup/0.11a/java-cup-0.11a.jar:<user_home>/.m2/repository/org/pentaho/pentaho-commons/pentaho-package-manager/1.0.8/pentaho-package-manager-1.0.8.jar:<user_home>/.m2/repository/junit/junit/4.11/junit-4.11.jar:<user_home>/.m2/repository/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar:<user_home>/.m2/repository/filters/filters/0.0.1-SNAPSHOT/filters-0.0.1-SNAPSHOT.jar weka.gui.Main
+	java -classpath "<user_home>/.m2/repository/com/googlecode/efficient-java-matrix-library/ejml/0.25/ejml-0.25.jar:<user_home>/.m2/repository/nz/ac/waikato/cms/weka/weka-dev/3.7.10/weka-dev-3.7.10.jar:<user_home>/.m2/repository/net/sf/squirrel-sql/thirdparty-non-maven/java-cup/0.11a/java-cup-0.11a.jar:<user_home>/.m2/repository/org/pentaho/pentaho-commons/pentaho-package-manager/1.0.8/pentaho-package-manager-1.0.8.jar:<user_home>/.m2/repository/junit/junit/4.11/junit-4.11.jar:<user_home>/.m2/repository/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar:<user_home>/.m2/repository/filters/filters/0.0.1-SNAPSHOT/filters-0.0.1-SNAPSHOT.jar" weka.gui.Main
 
 ## License
 
