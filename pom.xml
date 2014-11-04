@@ -5,7 +5,6 @@
   <version>0.0.1-SNAPSHOT</version>
   <description>WEKA filters plugin</description>
   <build>
-    <sourceDirectory>src</sourceDirectory>
     <plugins>
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
@@ -23,5 +22,15 @@
       <artifactId>ejml</artifactId>
       <version>0.25</version>
     </dependency>
+    <dependency>
+		<groupId>nz.ac.waikato.cms.weka</groupId>
+		<artifactId>weka-dev</artifactId>
+		<version>3.7.10</version>
+	</dependency>
+  	<dependency>
+  		<groupId>junit</groupId>
+  		<artifactId>junit</artifactId>
+  		<version>4.11</version>
+  	</dependency>
   </dependencies>
 </project>
