@@ -363,7 +363,7 @@ public class IndependentComponents
 			tmp.deleteAttributeAt(currentInstance.classIndex());
 		}
 		result = m_filter.transform(new double[][]{tmp.toDoubleArray()});
-		last_idx = result[0].length;
+		last_idx = getOutputFormat().numAttributes();
 		
 		// copy the results back into an instance
 		inst = new DenseInstance(getOutputFormat().numAttributes());
