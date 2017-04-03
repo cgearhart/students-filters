@@ -104,7 +104,7 @@ public class FastICA {
 	
 	/**
 	 * FastICA instance using the LogCosh() function to estimate negative 
-	 * entropy and mean-centering with opitonal whitening of the data matrix. 
+	 * entropy and mean-centering with optional whitening of the data matrix.
 	 * This implementation does not perform automatic component selection or 
 	 * reduction.
 	 * 
