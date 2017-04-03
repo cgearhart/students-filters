@@ -40,6 +40,29 @@ The `build.xml` file can be used with [Apache Ant](http://ant.apache.org/) to re
 
 NOTE: the EMJL library needs to be installed on your system in the expected location; follow the [instructions](https://code.google.com/p/efficient-java-matrix-library/) to install it with [Maven](http://maven.apache.org/).
 
+Sample usage:
+```
+		Instances convertedInstances = null;
+		if (requiresNominalToBinaryFilter) {
+			NominalToBinary nominalToBinaryFilter = new NominalToBinary();
+			nominalToBinaryFilter.setInputFormat(inputDataSet);
+			convertedInstances = Filter.useFilter(inputDataSet, nominalToBinaryFilter);
+		} else {
+			convertedInstances = inputDataSet;
+		}
+
+		Remove removeFilter = new Remove();
+		removeFilter.setAttributeIndices("" + (convertedInstances.classIndex() + 1));
+		removeFilter.setInputFormat(convertedInstances);
+		Instances filteredInstances = Filter.useFilter(convertedInstances, removeFilter);
+
+		IndependentComponents ica = new IndependentComponents();
+		ica.setNumAttributes(10); // change
+		ica.setInputFormat(filteredInstances);
+		Instances transformedInstances = Filter.useFilter(filteredInstances, ica);
+```
+
+
 ### WEKA GUI
 
 Once the filter is installed with the package manager, or has been simply unzipped to the package folder on the weka path, it will automatically appear in the WEKA gui. (The GUI must usually be restarted after new packages are added.) See the WEKA [documentation](http://weka.wikispaces.com/How+do+I+use+the+package+manager%3F) for more details.
