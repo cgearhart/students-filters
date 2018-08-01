@@ -32,24 +32,53 @@ import java.util.Enumeration;
 import java.util.Vector;
 
 import filters.FastICA;
-
-
-import weka.core.Attribute;
-import weka.core.AttributeStats;
-import weka.core.Capabilities;
-import weka.core.DenseInstance;
-import weka.core.Instance;
-import weka.core.Instances;
-import weka.core.Option;
-import weka.core.OptionHandler;
-import weka.core.RevisionUtils;
+import weka.core.*;
 import weka.core.Capabilities.Capability;
-import weka.core.Utils;
 import weka.filters.Filter;
 import weka.filters.UnsupervisedFilter;
-import weka.filters.unsupervised.attribute.Remove;
 
-// TODO: add support for negative entropy estimator option 
+/**
+ * <!-- globalinfo-start --> Performs independent components analysis and
+ * transformation of the data.<br/>
+ * ICA does not perform dimensionality reduction by default; run PCA (or similar)
+ * to determine the number of components to keep, then run ICA to find that 
+ * number of attributes.<br/>
+ * Based on code of the filter 'PrincipalComponents' fracpete
+ * <p/>
+ * <!-- globalinfo-end -->
+ * 
+ * <!-- options-start --> Valid options are:
+ * <p/>
+ * 
+ * <pre>
+ * -W
+ *  Whiten the data (decorrelate the inputs so
+ *  the covariance is the identity matrix).
+ * </pre>
+ * 
+ * <pre>
+ * -A &lt;num&gt;
+ *  Maximum number of attributes to include in results.
+ *  (-1 = include all, default: -1)
+ * </pre>
+ * 
+ * <pre>
+ * -N &lt;num&gt;
+ *  Maximum number of iterations.
+ *  (default: 200)
+ * </pre>
+ * 
+ * <pre>
+ * -T &lt;num&gt;
+ *  Convergence tolerance to stop training.
+ *  (default: 1E-4)
+ * </pre>
+ * 
+ * <!-- options-end -->
+ * 
+ * @author Chris Gearhart (cgearhart3@gatech.edu)
+ * @version $Revision: 12660 $
+ */ 
 public class IndependentComponents 
 	extends Filter
 	implements OptionHandler, UnsupervisedFilter{
@@ -59,11 +88,29 @@ public class IndependentComponents
 	
 	protected FastICA m_filter;
 	
+	/** The header for the transformed data format. */
+	protected Instances m_TransformedFormat;
+	
+	/** The data to transform analyse/transform. */
+	protected Instances m_TrainInstances;
+	
+	/** Keep a copy for the class attribute (if set). */
+	protected Instances m_TrainCopy;
+	
+	/** True when the instances sent to determineOutputFormat() has a class attribute */
+	protected boolean m_HasClass;
+	
+	/** Class index. */
+	protected int m_ClassIndex;
+	
+	/** Number of attributes in input. */
+	protected int m_NumAttribs;
+	
+	/** Number of instances in input. */
+	protected int m_NumInstances;
+	
 	/** If true, whiten input data. */
 	protected boolean m_whiten = true;
-	
-	/** Number of attributes to include. */
-	protected int m_numAttributes = -1;
 	
 	/** Maximum number of FastICA iterations. */
 	protected int m_numIterations = 200;
@@ -71,85 +118,22 @@ public class IndependentComponents
 	/** Error tolerance for convergence. */
 	protected double m_tolerance = 1E-4;
 	
-	/** True when the instances sent to determineOutputFormat() has a class attribute */
-	protected boolean m_hasClass; 
+	/** Filters for replacing missing values. */
+	protected ReplaceMissingValues m_ReplaceMissingFilter;
+
+	/** Filter for turning nominal values into numeric ones. */
+	protected NominalToBinary m_NominalToBinaryFilter;
+
+	/** Filter for removing class attribute, nominal attributes with 0 or 1 value. */
+	protected Remove m_AttributeFilter;
+	
+	/** The number of attributes in the transformed data (-1 for all). */
+	protected int m_OutputNumAtts = -1;
 
 	public String globalInfo() {
 		return "Performs Independent Component Analysis and transformation " +
-				"of numeric data using the FastICA algorithm while ignoring " +
-				"the class label.";
-	}
-	
-	public String whitenDataTipText() {
-		return "Whiten the data (decoupling transform) if set.";
-	}
-	
-	public void setWhitenData(boolean flag) {
-		m_whiten = flag;
-	}
-	
-	public boolean getWhitenData() {
-		return m_whiten;
-	}
-	
-	public String numAttributesTipText() {
-		return "Number of separate sources to identify in the output." +
-				" (-1 = include all; default: -1)";
-	}
-	
-	public void setNumAttributes(int num) {
-		m_numAttributes = num;
-	}
-	
-	public int getNumAttributes() {
-		return m_numAttributes;
-	}
-	
-	public String numIterationsTipText() {
-		return "The maximum number of iterations of the FastICA main loop to allow.";
-	}
-	
-	public void setNumIterations(int num) {
-		m_numIterations = num;
-	}
-	
-	public int getNumIterations() {
-		return m_numIterations;
-	}
-	
-	public String toleranceTipText() {
-		return "Error tolerance for solution convergence.";
-	}
-	
-	public void setTolerance(double tolerance) {
-		m_tolerance = tolerance;
-	}
-	
-	public double getTolerance() {
-		return m_tolerance;
-	}
-	
-	/**
-	 * Returns the capabilities of this evaluator.
-	 *
-	 * @return            the capabilities of this evaluator
-	 * @see               Capabilities
-	 */
-	public Capabilities getCapabilities() {
-		Capabilities result = super.getCapabilities();
-		result.disableAll();
-	
-		// attributes
-		result.enable(Capability.NUMERIC_ATTRIBUTES);
-		
-		// class
-		result.enable(Capability.NOMINAL_CLASS);
-		result.enable(Capability.NUMERIC_CLASS);
-		result.enable(Capability.DATE_CLASS);
-		result.enable(Capability.MISSING_CLASS_VALUES);
-		result.enable(Capability.NO_CLASS);
-		
-		return result;
+				"on numeric data using the FastICA algorithm. The class label " +
+				"is ignored.";
 	}
 	
 	/**
@@ -157,28 +141,29 @@ public class IndependentComponents
 	 *
 	 * @return      an enumeration of all the available options.
 	 */
+	@Override
 	public Enumeration<Option> listOptions() {
 		Vector<Option> result = new Vector<Option>();
 
 		result.addElement(new Option(
-				"\tWhiten the data (decorrelate the inputs so the covariance\n" +
-				"\tis the identity matrix) before performing ICA. This should\n" +
-				"\t*probably* be enabled unless you whitened the data yourself\n" +
-				"\tor have a specific reason not to perform whitening.",
-				"W", 0, "-W"));
+			"\tWhiten the data (decorrelate the inputs so the covariance\n" +
+			"\tis the identity matrix) before performing ICA. This should\n" +
+			"\t*probably* be enabled unless you whitened the data yourself\n" +
+			"\tor have a specific reason not to perform whitening.",
+			"W", 0, "-W"));
 
 		result.addElement(new Option(
-				"\tMaximum number of attributes to include in results.\n" +
-				"\t(-1 = include all, default: all)", 
-				"A", 1, "-A <num>"));
+			"\tMaximum number of attributes to include in results.\n" +
+			"\t(-1 = include all, default: all)", 
+			"A", 1, "-A <num>"));
 
 		result.addElement(new Option(
-				"\tMaximum number of iterations.\n\t(default: 200)", 
-				"N", 1, "-N <num>"));
+			"\tMaximum number of iterations.\n\t(default: 200)", 
+			"N", 1, "-N <num>"));
 		
 		result.addElement(new Option(
-				"\tConvergence tolerance to stop training.\n\t(default: 1E-4)", 
-				"T", 1, "-T <num>"));
+			"\tConvergence tolerance to stop training.\n\t(default: 1E-4)", 
+			"T", 1, "-T <num>"));
 
 		return result.elements();
 	}
@@ -212,28 +197,29 @@ public class IndependentComponents
 	 * @param options 	the list of options as an array of strings
 	 * @throws Exception 	if an option is not supported
 	 */
+	@Override
 	public void setOptions(String[] options) throws Exception {
 		String        tmpStr;
-		
+
 		setWhitenData(Utils.getFlag('W', options));
 
 		tmpStr = Utils.getOption('A', options);
 		if (tmpStr.length() != 0)
-			setNumAttributes(Integer.parseInt(tmpStr));
+			setOutputNumAtts(Integer.parseInt(tmpStr));
 		else
-			setNumAttributes(-1);
+			setOutputNumAtts(m_OutputNumAtts);
 
 		tmpStr = Utils.getOption('N', options);
 		if (tmpStr.length() != 0)
 			setNumIterations(Integer.parseInt(tmpStr));
 		else
-			setNumIterations(200);
+			setNumIterations(m_numIterations);
 
 		tmpStr = Utils.getOption('T', options);
 		if (tmpStr.length() != 0)
 			setTolerance(Double.parseDouble(tmpStr));
 		else
-			setTolerance(1E-4);
+			setTolerance(m_tolerance);
 	}
 
 	/**
@@ -241,6 +227,7 @@ public class IndependentComponents
 	 *
 	 * @return      an array of strings suitable for passing to setOptions
 	 */
+	@Override
 	public String[] getOptions() {
 		Vector<String>   result;
 
@@ -249,7 +236,7 @@ public class IndependentComponents
 		result.add("-W");
 
 		result.add("-A");
-		result.add("" + getNumAttributes());
+		result.add("" + getOutputNumAtts());
 		
 		result.add("-N");
 		result.add("" + getNumIterations());
@@ -258,6 +245,82 @@ public class IndependentComponents
 		result.add("" + getTolerance());
 
 		return result.toArray(new String[result.size()]);
+	}
+	
+	public String whitenDataTipText() {
+		return "Whiten the data (decoupling transform) if set.";
+	}
+	
+	public void setWhitenData(boolean flag) {
+		m_whiten = flag;
+	}
+	
+	public boolean getWhitenData() {
+		return m_whiten;
+	}
+	
+	public String outputNumAttsTipText() {
+		return "Number of separate sources to identify in the output. (-1 = include all; default: -1)";
+	}
+	
+	public void setOutputNumAtts(int num) {
+		m_OutputNumAtts = num;
+	}
+	
+	public int getOutputNumAtts() {
+		return m_OutputNumAtts;
+	}
+	
+	public String numIterationsTipText() {
+		return "The maximum number of iterations of the FastICA main loop to allow.";
+	}
+	
+	public void setNumIterations(int num) {
+		m_numIterations = num;
+	}
+	
+	public int getNumIterations() {
+		return m_numIterations;
+	}
+	
+	public String toleranceTipText() {
+		return "Error tolerance for solution convergence.";
+	}
+	
+	public void setTolerance(double tolerance) {
+		m_tolerance = tolerance;
+	}
+	
+	public double getTolerance() {
+		return m_tolerance;
+	}
+	
+	/**
+	 * Returns the capabilities of this evaluator.
+	 *
+	 * @return            the capabilities of this evaluator
+	 * @see               Capabilities
+	 */
+	@Override
+	public Capabilities getCapabilities() {
+		Capabilities result = super.getCapabilities();
+		result.disableAll();
+	
+		// attributes
+		result.enable(Capability.NOMINAL_ATTRIBUTES);
+	    result.enable(Capability.NUMERIC_ATTRIBUTES);
+	    result.enable(Capability.DATE_ATTRIBUTES);
+	    result.enable(Capability.MISSING_VALUES);
+		
+		// class
+	    result.enable(Capability.NOMINAL_CLASS);
+	    result.enable(Capability.UNARY_CLASS);
+	    result.enable(Capability.NUMERIC_CLASS);
+	    result.enable(Capability.DATE_CLASS);
+	    result.enable(Capability.MISSING_CLASS_VALUES);
+	    result.enable(Capability.NO_CLASS);
+		
+		return result;
 	}
 
 	/**
@@ -274,63 +337,29 @@ public class IndependentComponents
 	protected Instances determineOutputFormat(Instances inputFormat)
 			throws Exception {
 		
-		// Error if any data is missing or for non-numeric attributes
-		for (int j = 0; j < inputFormat.numAttributes(); j++) {
-			
-			if (j == inputFormat.classIndex()) {  // skip the class index
-				continue;
-			}
-
-			if (!inputFormat.attribute(j).isNumeric()) {
-				throw new Exception("All data must be numeric.");
-			}
-			
-			AttributeStats att = inputFormat.attributeStats(j);
-			if (att.missingCount > 0) {
-				throw new Exception("Missing data is not supported.");
-			}
+		if (m_OutputNumAtts < 0 || m_OutputNumAtts > inputFormat.numAttributes()) {
+			m_OutputNumAtts = inputFormat.numAttributes();
 		}
 		
 		// Add generic labels for the required number of unmixed sources
 		ArrayList<Attribute> attributes = new ArrayList<Attribute>();
-		for (int i = 0; i < m_numAttributes; i++) { 
+		for (int i = 0; i < m_OutputNumAtts; i++) { 
 			attributes.add(new Attribute("Source_" + Integer.toString(i)));
 		}
+		
+		if (m_HasClass) {
+			attributes.add((Attribute) m_TrainCopy.classAttribute().copy());
+		}
 	    
-	    // Copy the class attribute from the input (if set)
-	    if (inputFormat.classIndex() >= 0) {
-	    	m_hasClass = true;
-	    	attributes.remove(m_numAttributes - 1);  // remove the last source first
-	    	attributes.add((Attribute) inputFormat.classAttribute().copy());
+	    Instances outputFormat = new Instances(inputFormat.relationName()
+	    		+ "_ICA", attributes, 0);
+	    
+	    // set the class to be the last attribute if necessary
+	    if (m_HasClass) {
+	    	outputFormat.setClassIndex(outputFormat.numAttributes() - 1);
 	    }
 	    
-	    Instances outputFormat = 
-	    	      new Instances(
-	    		  inputFormat.relationName() + "_ICA", attributes, 0);
-	    
-	    if (inputFormat.classIndex() >= 0)
-	    	outputFormat.setClassIndex(outputFormat.numAttributes() - 1);
-	    
 	    return outputFormat;
-	}
-
-	/**
-	 * Sets the format of the input instances.
-	 *
-	 * @param instanceInfo    an {@link Instances} object containing the input 
-	 *                instance structure (any instances contained 
-	 *                in the object are ignored - only the structure 
-	 *                is required).
-	 * @return            true if the outputFormat may be collected 
-	 *                immediately
-	 * @throws Exception      if the input format can't be set successfully
-	 */
-	public boolean setInputFormat(Instances instanceInfo) throws Exception {
-		super.setInputFormat(instanceInfo);
-		m_filter = null;
-		m_hasClass = false;
-		
-		return false;
 	}
 	
 	/**
@@ -347,34 +376,184 @@ public class IndependentComponents
 	 * 				transformation does not succeed
 	 */
 	protected Instance convertInstance(Instance currentInstance) throws Exception {
+		Instance result;
+		double[] tmpVals;
+		double[] newVals;
+		Instance tempInst;
+
+		// make a copy of the instance and transform it with the trained ICA filter
+		tempInst = (Instance) currentInstance.copy();
+
+		m_ReplaceMissingFilter.input(tempInst);
+	    m_ReplaceMissingFilter.batchFinished();
+	    tempInst = m_ReplaceMissingFilter.output();
+
+	    m_NominalToBinaryFilter.input(tempInst);
+	    m_NominalToBinaryFilter.batchFinished();
+	    tempInst = m_NominalToBinaryFilter.output();
+
+	    if (m_AttributeFilter != null) {
+	      m_AttributeFilter.input(tempInst);
+	      m_AttributeFilter.batchFinished();
+	      tempInst = m_AttributeFilter.output();
+	    }
+
+	    double[][] data = new double[][]{tempInst.toDoubleArray()};
+		tmpVals = m_filter.transform(data)[0];
 		
-		int last_idx;
-		Instance tmp;
-		Instance inst;
-		double[][] result;
+		if (m_HasClass) {
+			newVals = new double[m_OutputNumAtts + 1];
+		} else {
+			newVals = new double[m_OutputNumAtts];
+		}
+		System.arraycopy(tmpVals, 0, newVals, 0, tmpVals.length);
 		
-		if (m_filter == null) {
-			throw new Exception("No ICA instance has been trained.");
+		if (m_HasClass) {
+			newVals[m_OutputNumAtts] = currentInstance.value(currentInstance.classIndex());
 		}
 
-		// make a copy of the instance and transform it
-		tmp = new DenseInstance(currentInstance);
-		if (currentInstance.classIndex() >= 0) {
-			tmp.deleteAttributeAt(currentInstance.classIndex());
-		}
-		result = m_filter.transform(new double[][]{tmp.toDoubleArray()});
-		last_idx = getOutputFormat().numAttributes();
+	    if (currentInstance instanceof SparseInstance) {
+	    	result = new SparseInstance(currentInstance.weight(), newVals);
+	    } else {
+	    	result = new DenseInstance(currentInstance.weight(), newVals);
+	    }
 		
-		// copy the results back into an instance
-		inst = new DenseInstance(getOutputFormat().numAttributes());
-		for (int i = 0; i < last_idx; i++) {
-			inst.setValue(i, result[0][i]);
-		}
-		if (currentInstance.classIndex() >= 0) {
-			inst.setValue(last_idx, currentInstance.classValue());
+		return result;
+	}
+	
+	/**
+	 * Initialize the filter on the input data
+	 * 
+	 * @param	instances 		{@link Instances} containing data for
+	 * 					training/fitting the {@link FastICA} filter
+	 * @throws	Exception 		if the {@link FastICA} or any preprocessing 
+	 * 					filters encounter a problem
+	 */
+	protected void setup(Instances instances) throws Exception {
+		int i;
+		Vector<Integer> deleteCols;
+	    int[] todelete;
+
+		m_TrainInstances = new Instances(instances);
+		
+		// make a copy of the training data so that we can get the class
+	    // column to append to the transformed data (if necessary)
+	    m_TrainCopy = new Instances(m_TrainInstances, 0);
+		
+	    m_ReplaceMissingFilter = new ReplaceMissingValues();
+	    m_ReplaceMissingFilter.setInputFormat(m_TrainInstances);
+	    m_TrainInstances = Filter.useFilter(m_TrainInstances,
+	      m_ReplaceMissingFilter);
+
+	    m_NominalToBinaryFilter = new NominalToBinary();
+	    m_NominalToBinaryFilter.setInputFormat(m_TrainInstances);
+	    m_TrainInstances = Filter.useFilter(m_TrainInstances,
+	      m_NominalToBinaryFilter);
+
+	    // delete any attributes with only one distinct value or are all missing
+	    deleteCols = new Vector<Integer>();
+	    for (i = 0; i < m_TrainInstances.numAttributes(); i++) {
+	      if (m_TrainInstances.numDistinctValues(i) <= 1) {
+	        deleteCols.addElement(i);
+	      }
+	    }
+
+	    if (m_TrainInstances.classIndex() >= 0) {
+	      // get rid of the class column
+	      m_HasClass = true;
+	      m_ClassIndex = m_TrainInstances.classIndex();
+	      deleteCols.addElement(new Integer(m_ClassIndex));
+	    }
+
+	    // remove columns from the data if necessary
+	    if (deleteCols.size() > 0) {
+	      m_AttributeFilter = new Remove();
+	      todelete = new int[deleteCols.size()];
+	      for (i = 0; i < deleteCols.size(); i++) {
+	        todelete[i] = (deleteCols.elementAt(i)).intValue();
+	      }
+	      m_AttributeFilter.setAttributeIndicesArray(todelete);
+	      m_AttributeFilter.setInvertSelection(false);
+	      m_AttributeFilter.setInputFormat(m_TrainInstances);
+	      m_TrainInstances = Filter.useFilter(m_TrainInstances, m_AttributeFilter);
+	    }
+
+	    // can evaluator handle the processed data ? e.g., enough attributes?
+	    getCapabilities().testWithFail(m_TrainInstances);
+
+	    m_NumInstances = m_TrainInstances.numInstances();
+	    m_NumAttribs = m_TrainInstances.numAttributes();
+		
+		// Convert the data to a row-indexed double[][]
+		double[][] readings = new double[m_NumInstances][];
+		for (i = 0; i < m_NumInstances; i++) {
+			readings[i] = m_TrainInstances.instance(i).toDoubleArray();
 		}
 		
-		return inst;
+		m_TransformedFormat = determineOutputFormat(m_TrainInstances);
+	    setOutputFormat(m_TransformedFormat);
+
+		// Perform ICA
+		m_filter = new FastICA(m_tolerance, m_numIterations, m_whiten);
+		m_filter.fit(readings, m_OutputNumAtts);
+
+	    m_TrainInstances = null;
+	}
+
+	/**
+	 * Sets the format of the input instances.
+	 *
+	 * @param instanceInfo    an {@link Instances} object containing the input 
+	 *                instance structure (any instances contained 
+	 *                in the object are ignored - only the structure 
+	 *                is required).
+	 * @return            true if the outputFormat may be collected 
+	 *                immediately
+	 * @throws Exception      if the input format can't be set successfully
+	 */
+	@Override
+	public boolean setInputFormat(Instances instanceInfo) throws Exception {
+		super.setInputFormat(instanceInfo);
+
+		m_filter = null;
+		m_HasClass = false;
+	    m_AttributeFilter = null;
+	    m_NominalToBinaryFilter = null;
+		
+		return false;
+	}
+
+	/**
+	 * Input an instance for filtering. Filter requires all training instances be
+	 * read before producing output.
+	 * 
+	 * @param instance the input instance
+	 * @return true if the filtered instance may now be collected with output().
+	 * @throws IllegalStateException if no input format has been set
+	 * @throws Exception if conversion fails
+	 */
+	@Override
+	public boolean input(Instance instance) throws Exception {
+		Instance inst;
+
+		if (getInputFormat() == null) {
+			throw new IllegalStateException("No input instance format defined");
+		}
+
+		if (isNewBatch()) {
+			resetQueue();
+			m_NewBatch = false;
+		}
+
+		if (isFirstBatchDone()) {
+			inst = convertInstance(instance);
+			inst.setDataset(getOutputFormat());
+			push(inst, false);
+			return true;
+		} else {
+			bufferInput(instance);
+			return false;
+		}
 	}
 	
 	/**
@@ -392,8 +571,8 @@ public class IndependentComponents
 	 * 						been defined
 	 * @throws 	Exception 				if there was a problem finishing the batch
 	 */
+	@Override
 	public boolean batchFinished() throws Exception {
-		
 		Instances inputs;
 		Instance output;
 		
@@ -402,73 +581,33 @@ public class IndependentComponents
 		}
 		
 		inputs = getInputFormat();
-
-		m_numAttributes = (m_numAttributes == -1) ? inputs.numAttributes() : m_numAttributes;
-		setOutputFormat(determineOutputFormat(inputs));
-		setup(inputs);
+		
+		if (!isFirstBatchDone()) {
+			setup(inputs);
+		}
 		
 		for (int i = 0; i < inputs.numInstances(); i++) {
 			output = convertInstance(inputs.instance(i));
 			output.setDataset(getOutputFormat());
-			push(output);
+			push(output, false);
 		}
 		
-		return super.batchFinished();
+		flushInput();
+	    m_NewBatch = true;
+	    m_FirstBatchDone = true;
+		
+	    return (numPendingOutput() != 0);
 	}
 	
 	/**
-	 * Run the filter on the input data
+	 * Returns the revision string.
 	 * 
-	 * @param	instances 		{@link Instances} containing data for
-	 * 					training/fitting the {@link FastICA} filter
-	 * @throws	Exception 		if the {@link FastICA} or any preprocessing 
-	 * 					filters encounter a problem
+	 * @return		the revision
 	 */
-	protected void setup(Instances instances) throws Exception {
-
-		Instances data = dropClass(instances);
-		
-		// TODO: add filters to handle missing data and non-numeric attributes &
-		// remove the errors on missing/non-numeric from determineOutputFormat
-		
-		// Convert the data to a row-indexed double[][]
-		double[][] readings = new double[data.numInstances()][];
-		for (int i = 0; i < data.numInstances(); i++) {
-			readings[i] = data.instance(i).toDoubleArray();
-		}
-		
-		// Perform ICA
-		m_filter = new FastICA(m_tolerance, m_numIterations, m_whiten);
-		m_filter.fit(readings, data.numAttributes());
-	}
-	
-	/*
-	 * Return a copy of an {@link Instances} object with the class 
-	 * attribute removed
-	 */
-	private Instances dropClass(Instances instances) throws Exception {
-		
-		if (instances.classIndex() == -1) {
-			return instances;
-		}
-		
-		Remove removeFilter = new Remove();
-		String[] options = new String[2];
-		options[0] = "-R";
-		options[1] = Integer.toString(instances.classIndex());
-		removeFilter.setOptions(options);
-		removeFilter.setInputFormat(instances);
-		return Filter.useFilter(instances, removeFilter);
-	}
-	
-	  /**
-	   * Returns the revision string.
-	   * 
-	   * @return		the revision
-	   */
+	@Override
 	public String getRevision() {
-	    return RevisionUtils.extract("$Revision: 1.0 $");
-	  }
+		return RevisionUtils.extract("$Revision: 2.0 $");
+	}
 	
 	/**
 	 * Main method for running this filter.

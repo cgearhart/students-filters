@@ -1,18 +1,56 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                      http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>filters</groupId>
   <artifactId>filters</artifactId>
-  <version>0.0.1-SNAPSHOT</version>
+  <version>2.0.0-SNAPSHOT</version>
   <description>WEKA filters plugin</description>
   <build>
     <plugins>
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.1</version>
+        <version>3.6.1</version>
         <configuration>
           <source>1.7</source>
           <target>1.7</target>
         </configuration>
+      </plugin>
+      <plugin>
+        <artifactId>maven-antrun-plugin</artifactId>
+          <version>1.8</version>
+          <executions>
+            <execution>
+              <phase>package</phase>
+                <configuration>
+                  <tasks>
+                    <echo message="Create Jar"/>
+                    <jar destfile="./StudentFilters.jar" filesetmanifest="mergewithoutmain">
+                      <manifest>
+                        <attribute name="Main-Class" value="filters.FastICA"/>
+                        <attribute name="Class-Path" value="."/>
+                      </manifest>
+                      <fileset dir="./target/classes"/>
+                      <zipfileset excludes="META-INF/*.SF" src="${user.home}/.m2/repository/com/googlecode/efficient-java-matrix-library/ejml/0.25/ejml-0.25.jar"/>
+                    </jar>
+
+                    <echo message="Create Zip"/>
+                    <delete dir="./dest"/>
+                    <copy todir="./dest/StudentFilters/src">
+                      <fileset dir="./src" />
+                    </copy>
+                    <copy file="./StudentFilters.jar" todir="./dest/StudentFilters"/>
+                    <copy file="./Description.props" todir="./dest/StudentFilters"/>
+                    <copy file="./UNLICENSE.txt" todir="./dest/StudentFilters"/>
+                    <zip destfile="./StudentFilters.zip" basedir="./dest/StudentFilters"/>
+                  </tasks>
+                </configuration>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+            </execution>
+          </executions>
       </plugin>
     </plugins>
   </build>
@@ -24,8 +62,8 @@
     </dependency>
     <dependency>
 		<groupId>nz.ac.waikato.cms.weka</groupId>
-		<artifactId>weka-dev</artifactId>
-		<version>3.7.10</version>
+		<artifactId>weka</artifactId>
+		<version>3.8.2</version>
 	</dependency>
   	<dependency>
   		<groupId>junit</groupId>

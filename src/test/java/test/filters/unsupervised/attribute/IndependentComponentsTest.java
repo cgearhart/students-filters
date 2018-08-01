@@ -1,46 +1,51 @@
 package test.filters.unsupervised.attribute;
 
-import java.util.Random;
+import static org.junit.Assert.assertEquals;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
 
-import org.ejml.simple.SimpleMatrix;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import weka.core.Attribute;
-import weka.core.CheckOptionHandler;
+import weka.core.Instance;
 import weka.core.Instances;
-import weka.filters.Filter;
+import weka.core.converters.ArffLoader.ArffReader;
 import weka.filters.unsupervised.attribute.IndependentComponents;
 
 public class IndependentComponentsTest {
 	
-	static Instances signals;
+	static Instances m_data;
+	static int m_numAttrs; 
 	
 	@BeforeClass
-	public static void mixSignals() {
-		// Read instances from data file containing 2000 samples mixing two
-		// signals, sin(2t) + U[0,0.2] and square(3t) + U[0,0.2], with the
-		// mixing matrix [[1,1], [0.5,2]]
-		
-		for (int j = 0; j < 3; j++) {
-			signals.insertAttributeAt(new Attribute("S_" + Integer.toString(j)), j);
-		}
-		
+	public static void readArff() throws Exception {
+		BufferedReader reader = new BufferedReader(new FileReader("iris.arff"));
+		ArffReader arff = new ArffReader(reader);
+		m_data = arff.getData();
+		m_data.setClassIndex(m_data.numAttributes() - 1);
+		m_numAttrs = 2;  // valid choices are 1-4 for iris data set
 	}
 	
 	@Test
-	public void testFilter() {
-		Instances result;
-		IndependentComponents ICF = new IndependentComponents();
-		
-		try {
-			result = Filter.useFilter(signals, ICF);
-		} catch (Exception e) {
-			e.printStackTrace();
+	public void testFilter() throws Exception {
+		IndependentComponents filter = new IndependentComponents();
+		filter.setInputFormat(m_data);
+		filter.setOutputNumAtts(m_numAttrs); // optionally set the number of attributes (for dimensionality reduction)
+		for (int i = 0; i < m_data.numInstances(); i++) {
+			filter.input(m_data.instance(i));
 		}
-		
-		// assert something about result
+		filter.batchFinished();
+		Instances newData = filter.getOutputFormat();
+		Instance processed;
+		while ((processed = filter.output()) != null) {
+			newData.add(processed);
+		}
+
+		// m_numAttrs = numAttributes() - 1 because numAttributes() includes the class attribute
+		assertEquals(m_numAttrs, newData.numAttributes() - 1);
+		assertEquals(m_data.numClasses(), newData.numClasses());
+		assertEquals(m_data.numInstances(), newData.numInstances());
 	}
 
 }
